@@ -1,0 +1,214 @@
+﻿@page "/tasks"
+@using Allbatros.OperationsHub.Models.ClickUp
+@using Allbatros.OperationsHub.Services.Interfaces
+@inject IClickUpService ClickUpService
+@inject IAIService AIService
+
+<PageTitle>Tasklar - Allbatros Operations Hub</PageTitle>
+
+<div class="container py-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Gorev Panosu</h1>
+            <p class="text-muted mb-0">ClickUp benzeri operasyon akisini durum, oncelik ve AI ozetleri ile izleyin.</p>
+        </div>
+
+        @if (!isLoading && tasks.Count > 0)
+        {
+            <span class="badge @(isLiveData ? "text-bg-success" : "text-bg-secondary") px-3 py-2">
+                Veri kaynagi: @(isLiveData ? "ClickUp API" : tasks[0].Source)
+            </span>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Yukleniyor...</p>
+    }
+    else if (tasks.Count == 0)
+    {
+        <div class="alert alert-info">Secili listede gosterilecek task bulunamadi.</div>
+    }
+    else
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-xl-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Toplam Gorev</div>
+                        <div class="display-6 fw-semibold">@tasks.Count</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-xl-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Yuksek Oncelik</div>
+                        <div class="display-6 fw-semibold">@tasks.Count(task => IsHighPriority(task.Priority))</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-xl-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Yaklasan Termin</div>
+                        <div class="display-6 fw-semibold">@tasks.Count(task => IsDueSoon(task.DueDate))</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-6 col-xl-3">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Bekleyen Isler</div>
+                        <div class="display-6 fw-semibold">@tasks.Count(task => GetBoardColumn(task.Status).Key == "planned")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 align-items-start">
+            @foreach (var column in boardColumns)
+            {
+                var columnTasks = tasks.Where(task => GetBoardColumn(task.Status).Key == column.Key).ToList();
+
+                <div class="col-12 col-xl-3">
+                    <div class="card border-0 shadow-sm h-100 bg-light">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h2 class="h5 mb-1">@column.Title</h2>
+                                    <div class="text-muted small">@column.Description</div>
+                                </div>
+                                <span class="badge @column.BadgeCss">@columnTasks.Count</span>
+                            </div>
+
+                            @if (columnTasks.Count == 0)
+                            {
+                                <div class="border rounded p-3 bg-white text-muted small">
+                                    Bu kolonda gorev yok.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-grid gap-3">
+                                    @foreach (var task in columnTasks)
+                                    {
+                                        <div class="card border-0 shadow-sm bg-white">
+                                            <div class="card-body">
+                                                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                                    <div>
+                                                        <div class="text-muted small">@task.Id</div>
+                                                        <h3 class="h6 mb-1">@task.Title</h3>
+                                                    </div>
+                                                    <span class="badge @GetPriorityCss(task.Priority)">@task.Priority</span>
+                                                </div>
+
+                                                <div class="mb-2 small text-muted">
+                                                    <div>Durum: @task.Status</div>
+                                                    <div>Sorumlu: @task.Assignee</div>
+                                                    <div>Termin: @FormatDueDate(task.DueDate)</div>
+                                                    <div>Kaynak: @task.Source</div>
+                                                </div>
+
+                                                <p class="small mb-3">@task.Summary</p>
+
+                                                <a class="btn btn-sm btn-outline-primary" href="@GetTaskDetailUrl(task.Id)">Detayi Ac</a>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly IReadOnlyList<BoardColumn> boardColumns =
+    [
+        new("planned", "Planlandi", "Backlog ve planlama asamasindaki isler", "text-bg-secondary"),
+        new("progress", "Devam Ediyor", "Aktif olarak ilerleyen gorevler", "text-bg-primary"),
+        new("risk", "Riskli", "Yakindan takip edilmesi gereken gorevler", "text-bg-danger"),
+        new("done", "Tamamlandi", "Kapanan veya teslim edilen isler", "text-bg-success")
+    ];
+
+    private bool isLoading = true;
+    private bool isLiveData;
+    private List<ProjectTaskItem> tasks = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await ClickUpService.GetTasksAsync();
+        tasks = result.ToList();
+
+        foreach (var task in tasks)
+        {
+            task.Summary = await AIService.BuildTaskSummaryAsync(task);
+        }
+
+        isLiveData = tasks.Any() && tasks.All(task => task.Source == "ClickUp API");
+
+        isLoading = false;
+    }
+
+    private static BoardColumn GetBoardColumn(string status)
+    {
+        var normalizedStatus = status.Trim().ToLowerInvariant();
+
+        if (normalizedStatus.Contains("risk") || normalizedStatus.Contains("blocked") || normalizedStatus.Contains("engel"))
+        {
+            return boardColumns[2];
+        }
+
+        if (normalizedStatus.Contains("done") || normalizedStatus.Contains("complete") || normalizedStatus.Contains("tamam"))
+        {
+            return boardColumns[3];
+        }
+
+        if (normalizedStatus.Contains("progress") || normalizedStatus.Contains("devam") || normalizedStatus.Contains("in review") || normalizedStatus.Contains("review"))
+        {
+            return boardColumns[1];
+        }
+
+        return boardColumns[0];
+    }
+
+    private static string GetPriorityCss(string priority)
+    {
+        var normalizedPriority = priority.Trim().ToLowerInvariant();
+
+        return normalizedPriority switch
+        {
+            "kritik" => "text-bg-danger",
+            "urgent" => "text-bg-danger",
+            "yuksek" => "text-bg-warning",
+            "high" => "text-bg-warning",
+            "orta" => "text-bg-primary",
+            "normal" => "text-bg-primary",
+            _ => "text-bg-secondary"
+        };
+    }
+
+    private static bool IsHighPriority(string priority)
+    {
+        var normalizedPriority = priority.Trim().ToLowerInvariant();
+        return normalizedPriority is "kritik" or "urgent" or "yuksek" or "high";
+    }
+
+    private static bool IsDueSoon(DateTime? dueDate)
+        => dueDate.HasValue && dueDate.Value.Date <= DateTime.Today.AddDays(3);
+
+    private static string FormatDueDate(DateTime? dueDate)
+        => dueDate?.ToString("dd.MM.yyyy") ?? "Yok";
+
+    private static string GetTaskDetailUrl(string taskId)
+        => $"/tasks/{Uri.EscapeDataString(taskId)}";
+
+    private sealed record BoardColumn(string Key, string Title, string Description, string BadgeCss);
+}

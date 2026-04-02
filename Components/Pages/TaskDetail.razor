@@ -1,0 +1,197 @@
+@page "/tasks/{TaskId}"
+@using Allbatros.OperationsHub.Models.ClickUp
+@using Allbatros.OperationsHub.Services.Interfaces
+@inject IClickUpService ClickUpService
+@inject IAIService AIService
+
+<PageTitle>Gorev Detayi - Allbatros Operations Hub</PageTitle>
+
+<div class="container py-4">
+    @if (isLoading)
+    {
+        <p>Gorev detayi yukleniyor...</p>
+    }
+    else if (task is null)
+    {
+        <div class="alert alert-warning">
+            Gorev bulunamadi. <a href="/tasks" class="alert-link">Gorev panosuna don</a>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+            <div>
+                <div class="text-muted small mb-1">@task.Id</div>
+                <h1 class="h3 mb-1">@task.Title</h1>
+                <p class="text-muted mb-0">AI destekli gorev analizi ve operasyon ozeti</p>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2">
+                <span class="badge @GetPriorityCss(task.Priority)">@task.Priority</span>
+                <span class="badge @GetStatusCss(task.Status)">@task.Status</span>
+                <a href="/tasks" class="btn btn-outline-secondary btn-sm">Panoya Don</a>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-12 col-xl-8">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">AI Ozeti</h2>
+                        <p class="mb-0">@task.Summary</p>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Sonraki Aksiyonlar</h2>
+                        <ul class="mb-0 ps-3">
+                            <li>Sorumlu kisi ile mevcut blokajlari netlestir</li>
+                            <li>Termin riskini takip etmek icin kontrol noktasi olustur</li>
+                            <li>Gorev aciklamasini AI ozetine gore guncelle</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-xl-4">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Gorev Bilgileri</h2>
+                        <div class="small text-muted d-grid gap-2">
+                            <div><span class="fw-semibold text-dark">Durum:</span> @task.Status</div>
+                            <div><span class="fw-semibold text-dark">Oncelik:</span> @task.Priority</div>
+                            <div><span class="fw-semibold text-dark">Sorumlu:</span> @task.Assignee</div>
+                            <div><span class="fw-semibold text-dark">Termin:</span> @FormatDueDate(task.DueDate)</div>
+                            <div><span class="fw-semibold text-dark">Kaynak:</span> @task.Source</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm bg-light">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Risk Degerlendirmesi</h2>
+                        <div class="small mb-2">@GetRiskText(task)</div>
+                        <div class="progress" role="progressbar" aria-label="Risk skoru">
+                            <div class="progress-bar @GetRiskBarCss(task)" style="width: @GetRiskPercentage(task)%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string TaskId { get; set; } = "";
+
+    private bool isLoading = true;
+    private ProjectTaskItem? task;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        task = await ClickUpService.GetTaskByIdAsync(TaskId);
+
+        if (task is not null)
+        {
+            task.Summary = await AIService.BuildTaskSummaryAsync(task);
+        }
+
+        isLoading = false;
+    }
+
+    private static string FormatDueDate(DateTime? dueDate)
+        => dueDate?.ToString("dd.MM.yyyy") ?? "Yok";
+
+    private static string GetPriorityCss(string priority)
+    {
+        var normalizedPriority = priority.Trim().ToLowerInvariant();
+
+        return normalizedPriority switch
+        {
+            "kritik" => "text-bg-danger",
+            "urgent" => "text-bg-danger",
+            "yuksek" => "text-bg-warning",
+            "high" => "text-bg-warning",
+            "orta" => "text-bg-primary",
+            "normal" => "text-bg-primary",
+            _ => "text-bg-secondary"
+        };
+    }
+
+    private static string GetStatusCss(string status)
+    {
+        var normalizedStatus = status.Trim().ToLowerInvariant();
+
+        if (normalizedStatus.Contains("risk") || normalizedStatus.Contains("blocked") || normalizedStatus.Contains("engel"))
+        {
+            return "text-bg-danger";
+        }
+
+        if (normalizedStatus.Contains("done") || normalizedStatus.Contains("complete") || normalizedStatus.Contains("tamam"))
+        {
+            return "text-bg-success";
+        }
+
+        if (normalizedStatus.Contains("progress") || normalizedStatus.Contains("devam") || normalizedStatus.Contains("review"))
+        {
+            return "text-bg-primary";
+        }
+
+        return "text-bg-secondary";
+    }
+
+    private static int GetRiskPercentage(ProjectTaskItem task)
+    {
+        var score = 25;
+
+        if (task.DueDate.HasValue && task.DueDate.Value.Date <= DateTime.Today.AddDays(2))
+        {
+            score += 30;
+        }
+
+        var normalizedPriority = task.Priority.Trim().ToLowerInvariant();
+        if (normalizedPriority is "kritik" or "urgent")
+        {
+            score += 30;
+        }
+        else if (normalizedPriority is "yuksek" or "high")
+        {
+            score += 15;
+        }
+
+        var normalizedStatus = task.Status.Trim().ToLowerInvariant();
+        if (normalizedStatus.Contains("risk") || normalizedStatus.Contains("blocked") || normalizedStatus.Contains("engel"))
+        {
+            score += 20;
+        }
+
+        return Math.Min(score, 100);
+    }
+
+    private static string GetRiskText(ProjectTaskItem task)
+    {
+        var score = GetRiskPercentage(task);
+
+        return score switch
+        {
+            >= 80 => "Yuksek risk. Yakindan takip ve hizli aksiyon gerekli.",
+            >= 55 => "Orta risk. Termin ve sorumluluk takibi onerilir.",
+            _ => "Kontrollu seviye. Duzenli takip yeterli gorunuyor."
+        };
+    }
+
+    private static string GetRiskBarCss(ProjectTaskItem task)
+    {
+        var score = GetRiskPercentage(task);
+
+        return score switch
+        {
+            >= 80 => "bg-danger",
+            >= 55 => "bg-warning",
+            _ => "bg-success"
+        };
+    }
+}

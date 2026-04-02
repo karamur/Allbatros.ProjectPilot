@@ -1,0 +1,80 @@
+﻿@page "/ai-insights"
+@page "/ai-insights"
+@using Allbatros.OperationsHub.Models.AI
+@using Allbatros.OperationsHub.Models.ClickUp
+@using Allbatros.OperationsHub.Services.Interfaces
+@inject IClickUpService ClickUpService
+@inject IAIService AIService
+
+<PageTitle>AI Insights - Allbatros Operations Hub</PageTitle>
+
+<div class="container py-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">AI Control Center</h1>
+            <p class="text-muted mb-0">Risk sinyalleri, odak gerektiren gorevler ve ekip yogunlugu tek ekranda ozetlenir.</p>
+        </div>
+        <span class="badge text-bg-secondary px-3 py-2">@settings.WorkspaceName</span>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Analiz hazirlaniyor...</p>
+    }
+    else
+    {
+        <div class="alert @(settings.IsConfigured ? "alert-success" : "alert-warning")">
+            @if (settings.IsConfigured)
+            {
+                <span>ClickUp ayarlari tanimli. Gercek API entegrasyonu icin servis genisletilebilir.</span>
+            }
+            else
+            {
+                <span>ClickUp ayarlari henuz tamamlanmamis. Su an demo veriler gosteriliyor.</span>
+            }
+        </div>
+
+        <div class="row g-3">
+            @foreach (var insight in insights)
+            {
+                <div class="col-12 col-lg-6">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <div class="text-muted small">@insight.Category</div>
+                                    <h2 class="h5 mb-1">@insight.Title</h2>
+                                </div>
+                                <span class="badge @GetSeverityCss(insight.Severity)">@insight.Severity</span>
+                            </div>
+                            <p>@insight.Description</p>
+                            <button class="btn btn-outline-primary btn-sm" disabled>@insight.ActionLabel</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private ClickUpWorkspaceSettings settings = new();
+    private List<ProjectTaskItem> tasks = [];
+    private IReadOnlyList<AIInsight> insights = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        settings = await ClickUpService.GetSettingsAsync();
+        tasks = (await ClickUpService.GetTasksAsync()).ToList();
+        insights = await AIService.GenerateInsightsAsync(tasks);
+        isLoading = false;
+    }
+
+    private static string GetSeverityCss(string severity) => severity switch
+    {
+        "High" => "text-bg-danger",
+        "Medium" => "text-bg-warning",
+        _ => "text-bg-info"
+    };
+}

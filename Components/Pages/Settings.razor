@@ -1,0 +1,136 @@
+@page "/settings"
+@using Allbatros.OperationsHub.Models.ClickUp
+@using Allbatros.OperationsHub.Services.Interfaces
+@inject IClickUpService ClickUpService
+
+<PageTitle>Ayarlar - Allbatros Operations Hub</PageTitle>
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">ClickUp Ayarlari</h1>
+            <p class="text-muted mb-0">Proje yonetimi entegrasyonu icin temel baglanti bilgilerini burada yonetin.</p>
+        </div>
+        <span class="badge @(model.IsConfigured ? "text-bg-success" : "text-bg-warning")">
+            @(model.IsConfigured ? "Hazir" : "Eksik")
+        </span>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @statusCss">@statusMessage</div>
+    }
+
+    <EditForm Model="model" OnValidSubmit="SaveAsync">
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Workspace adi</label>
+                                <InputText class="form-control" @bind-Value="model.WorkspaceName" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">API base URL</label>
+                                <InputText class="form-control" @bind-Value="model.ApiBaseUrl" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">API token</label>
+                                <InputText class="form-control" type="password" @bind-Value="model.ApiToken" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Team ID</label>
+                                <InputText class="form-control" @bind-Value="model.TeamId" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">List ID</label>
+                                <InputText class="form-control" @bind-Value="model.ListId" />
+                            </div>
+                        </div>
+
+                        <div class="mt-4 d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Kaydet</button>
+                            <button type="button" class="btn btn-outline-primary" @onclick="TestConnectionAsync" disabled="@isTesting">
+                                @(isTesting ? "Test ediliyor..." : "Baglantiyi Test Et")
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="ReloadAsync">Yenile</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+                <div class="card h-100 border-0 bg-light">
+                    <div class="card-body">
+                        <h2 class="h5">Sonraki adim</h2>
+                        <ul class="mb-0 ps-3 small text-muted">
+                            <li>Gercek task verisini bu ayarlarla cekin</li>
+                            <li>AI ozet ve risk analizi ekranlarini canli veriye baglayin</li>
+                            <li>Webhook ve otomasyon kurallari ekleyin</li>
+                        </ul>
+
+                        @if (lastConnectionResult is not null)
+                        {
+                            <hr />
+                            <div class="small">
+                                <div class="fw-semibold mb-1">Son baglanti testi</div>
+                                <div class="text-muted">@lastConnectionResult.Message</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </EditForm>
+</div>
+
+@code {
+    private ClickUpWorkspaceSettings model = new();
+    private ClickUpConnectionResult? lastConnectionResult;
+    private bool isTesting;
+    private string? statusMessage;
+    private string statusCss = "alert-info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        model = await ClickUpService.GetSettingsAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await ClickUpService.UpdateSettingsAsync(model);
+        model = await ClickUpService.GetSettingsAsync();
+        statusMessage = "Ayarlar uygulama oturumu icin guncellendi.";
+        statusCss = "alert-success";
+    }
+
+    private async Task ReloadAsync()
+    {
+        model = await ClickUpService.GetSettingsAsync();
+        statusMessage = "Kayitli ayarlar yeniden yüklendi.";
+        statusCss = "alert-secondary";
+    }
+
+    private async Task TestConnectionAsync()
+    {
+        isTesting = true;
+        lastConnectionResult = null;
+
+        try
+        {
+            await ClickUpService.UpdateSettingsAsync(model);
+            lastConnectionResult = await ClickUpService.TestConnectionAsync();
+            statusMessage = lastConnectionResult.Message;
+            statusCss = lastConnectionResult.IsSuccess ? "alert-success" : "alert-warning";
+        }
+        finally
+        {
+            isTesting = false;
+        }
+    }
+}

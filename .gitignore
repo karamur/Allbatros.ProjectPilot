@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.cache
+*.tmp
+*.log
+*.db
+TestResults/
+artifacts/
+node_modules/
